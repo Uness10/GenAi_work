@@ -1,0 +1,220 @@
+Word analogies. The word analogy task con
+sists of questions like, “a is to b as c is to  ..?”
+The dataset contains 19,544 such questions, di
+vided into a semantic subset and a syntactic sub
+set. The semantic questions are typically analogies
+about people or places, like “Athens is to Greece
+as Berlin is to  .. ?”. The syntactic questions are
+typically analogies about verb tenses or forms of
+adjectives, for example “dance is to dancing as fly
+is to ..?”. To correctly answer the question, the
+model should uniquely identify the missing term,
+with only an exact correspondence counted as a
+correct match. We answer the question “a is to b
+as c is to ..?” byfinding the word d whose repre
+sentation wd is closest to wb − wa + wc according
+to the cosine similarity.4
+
+Word similarity. While the analogy task is our
+primary focus since it tests for interesting vector
+space substructures, we also evaluate our model on
+a variety of word similarity tasks in Table 3. These
+include WordSim-353 (Finkelstein et al., 2001),
+MC (Miller and Charles, 1991), RG (Rubenstein
+and Goodenough, 1965), SCWS (Huang et al.,
+2012), and RW (Luong et al., 2013).
+
+Named entity recognition. 
+
+The model generates two sets of word vectors,
+W and ˜W. When X is symmetric, W and ˜W are
+equivalent and differ only as a result of their ran
+dom initializations; the two sets of vectors should
+perform equivalently. On the other hand, there is
+evidence that for certain types of neural networks,
+training multiple instances of the network and then
+combining the results can help reduce overfitting
+and noise and generally improve results (Ciresan
+et al., 2012). With this in mind, we choose to use the sum W + ˜W asourwordvectors. Doing so typ
+ically gives a small boost in performance, with the
+biggest increase in the semantic analogy task.
+
+for each iteration:
+    - total_cost = 0
+    - for each chunk[id] of data:
+        - for each co-occ record (i,j,Xij):
+            - Read w_i , w̃_j,  b_i,  b̃_j
+            - dot = w_i · w̃_j
+            - pred = dot + b_i + b̃_j
+            - error = pred - log(X_ij)
+            - cost[id] = 0.5*  f(Xij) * error²
+            - Compute gradients:
+                ∂L/∂w_i = f(X_ij) * error * w̃_j
+                ∂L/∂w̃_j = f(X_ij) * error * w_i
+            - Adagrad step:
+                w_i -=  η / sqrt(g_wi) * ∂L/∂w_i
+                w̃_j -= η / sqrt(g_w̃j) * ∂L/∂w̃_j
+                b_i -= η / sqrt(g_bi ) * ∂L/∂b_i
+                b̃_j -= η / sqrt(g_b̃j ) * ∂L/∂b̃_j
+        - total_cost += cost[id];
+
+4.1 Evaluation methods
+We conduct experiments on the word analogy
+task of Mikolov et al. (2013a), a variety of word
+similarity tasks, as described in (Luong et al.,
+2013), and on the CoNLL-2003 shared benchmark dataset for NER (Tjong Kim Sang and De Meul
+der, 2003).
+
+Results:
+    Acc of vpred​=vb​−va​+vc​
+    Word Analogy :
+        \begin{table}[h!]
+        \centering
+        \begin{tabular}{lcccccc}
+        \hline
+        Model   & Dim. & Size & Sem. & Syn. & Tot. \\
+        \hline
+        ivLBL   & 100  & 1.5B & 55.9 & 50.1 & 53.2 \\
+        HPCA    & 100  & 1.6B &  4.2 & 16.4 & 10.8 \\
+        GloVe   & 100  & 1.6B & 67.5 & 54.3 & 60.3 \\
+        \hline
+        SG      & 300  & 1B   & 61.0 & 61.0 & 61.0 \\
+        CBOW    & 300  & 1.6B & 16.1 & 52.6 & 36.1 \\
+        vLBL    & 300  & 1.5B & 54.2 & 64.8 & 60.0 \\
+        ivLBL   & 300  & 1.5B & 65.2 & 63.0 & 64.0 \\
+        GloVe   & 300  & 1.6B & 80.8 & 61.5 & 70.3 \\
+        \hline
+        SVD     & 300  & 6B   &  6.3 &  8.1 &  7.3 \\
+        SVD-S   & 300  & 6B   & 36.7 & 46.6 & 42.1 \\
+        SVD-L   & 300  & 6B   & 56.6 & 63.0 & 60.1 \\
+        CBOW$^\dagger$ & 300 & 6B & 63.6 & 67.4 & 65.7 \\
+        SG$^\dagger$   & 300 & 6B & 73.0 & 66.0 & 69.1 \\
+        GloVe   & 300  & 6B   & 77.4 & 67.0 & 71.7 \\
+        \hline
+        CBOW    & 1000 & 6B   & 57.3 & 68.9 & 63.7 \\
+        SG      & 1000 & 6B   & 66.1 & 65.1 & 65.6 \\
+        SVD-L   & 300  & 42B  & 38.4 & 58.2 & 49.2 \\
+        GloVe   & 300  & 42B  & 81.9 & 69.3 & 75.0 \\
+        \hline
+        \end{tabular}
+        \caption{Word analogy task results: Semantic (Sem.), Syntactic (Syn.), and Total (Tot.) accuracy for various models, dimensions, and corpus sizes (in billions of tokens).}
+        \end{table}
+
+
+    Word similarity:
+            A similarity score is obtained
+        from the word vectors by first normalizing each
+        feature across the vocabulary and then calculat
+        ing the cosine similarity. We compute Spearman’s
+        rank correlation coefficient between this score and
+        the human judgments
+
+        Model Size WS353 MC RG SCWS RW
+        SVD 6B 35.3 35.1 42.5 38.3 25.6
+        SVD-S 6B 56.5 71.5 71.0 53.6 34.7
+        SVD-L 6B 65.7 72.7 75.1 56.5 37.0
+        CBOW† 6B 57.2 65.6 68.2 57.0 32.5
+        SG†
+        6B 62.8 65.2 69.7 58.1 37.2
+        GloVe 6B 65.8 72.7 77.8 53.9 38.1
+        SVD-L 42B 74.0 76.4 74.1 58.3 39.9
+        GloVe 42B 75.9 83.6 82.9 59.6 47.8
+        CBOW∗ 100B 68.4 79.6 75.4 59.4 45.5
+    NER 
+        Embeddings as features → CRF (Conditional Random Field) model (entity classification) → NER evaluation (F1 score)
+       
+        Model Dev Test ACE MUC7
+        Discrete 91.0 85.4 77.4 73.4
+        SVD 90.8 85.7 77.3 73.7
+        SVD-S 91.0 85.5 77.6 74.3
+        SVD-L 90.5 84.8 73.6 71.5
+        HPCA 92.6 88.7 81.7 80.7
+        HSMN 90.5 85.7 78.7 74.7
+        CW 92.2 87.4 81.7 80.2
+        CBOW 93.1 88.2 82.2 81.1
+        GloVe 93.2 88.3 82.9 82.2
+
+        C/C: GloVe vectors are useful in downstream NLP tasks
+
+
+        Key Limitations of GloVe
+        1. Outdated vocabulary & semantic drift
+
+        Limitation
+
+        The original GloVe vectors (2014) lack coverage of recent vocabulary (e.g., "covid", "chatbot", "fintech", "nonbinary", "deepfake"). Additionally, the meanings of existing words can shift over time (semantic drift), as seen with words like "cloud", "viral", or "tweet". This leads to out-of-vocabulary (OOV) issues and reduced performance on contemporary datasets.
+
+        How it was solved
+
+        Recent GloVe retrainings use up-to-date corpora (e.g., 2023–2024 Wikipedia, Gigaword v5, Dolma) and include web/social media sources (Reddit, Common Crawl) to capture new slang and emerging terms. This results in hundreds of thousands of new, culturally relevant tokens and improved NER performance on modern data.
+
+        2. Static embeddings (no context sensitivity)
+
+        Limitation
+
+        GloVe assigns a single vector per word, regardless of context. This means words like "bank" (river vs. finance) or "apple" (fruit vs. company) cannot be disambiguated, limiting expressiveness compared to contextual models (e.g., transformers).
+
+        How it was (partially) addressed
+
+        While static embeddings cannot fully resolve this, using larger and more diverse corpora helps cluster different senses more cleanly. Improved downstream performance (e.g., NER) demonstrates practical gains, even without contextualization. GloVe remains lightweight, interpretable, and useful in low-resource or efficiency-constrained settings.
+
+        3. Poor handling of rare words
+
+        Limitation
+
+        Rare words have noisy co-occurrence statistics. Including too many rare tokens can degrade embedding quality, while excluding them may omit important emerging entities.
+
+        How it was solved
+
+        A Minimum Frequency Threshold (MFT) strategy, inspired by GloVe-V, is used. By tuning the MFT (e.g., requiring at least 20 occurrences), the model balances noise reduction with retention of meaningful low-frequency terms, improving robustness while still capturing new vocabulary.
+
+        4. No uncertainty estimates
+
+        Limitation
+
+        Classic GloVe treats all embeddings as equally reliable, but rare or sparsely observed words are actually much more uncertain.
+
+        How it was solved (conceptually)
+
+        Recent work builds on GloVe-V, which models statistical uncertainty in embeddings. While released vectors are standard, training choices are informed by alignment with weighted least-squares (WLS) optima and stability diagnostics (e.g., cosine similarity to WLS vectors).
+
+        5. Overestimation of antonym similarity
+
+        Limitation
+
+        GloVe sometimes places antonyms close together (e.g., "agree"–"argue", "hot"–"cold"), which can hurt word similarity benchmarks like SimLex-999. This occurs because antonyms often appear in similar contexts (distributional similarity).
+
+        How it was addressed (partially)
+
+        This limitation is acknowledged in analysis. The tradeoff is accepted because downstream tasks (e.g., NER) improve and synonym/hypernym capture is strong. Fully resolving this would require lexical constraints, retrofitting, or contextual models.
+Q1 — Biggest takeaways
+
+What GloVe is
+
+How it differs from Word2Vec & LSA
+
+Q2 — Why important
+
+Combines global + local information
+
+Better semantic structure
+
+Q3 — Technical details
+
+Co-occurrence matrix
+
+Cost function intuition
+
+Weighting function
+
+Q4 — Experiments
+
+Word similarity
+
+Analogy tasks
+
+Q5 — Limitations
+
+Static embeddings
+
+Improvements in newglove

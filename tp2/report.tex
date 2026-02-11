@@ -1,0 +1,367 @@
+\documentclass[a4paper,12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx} 
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{palatino} % Use Palatino font
+\usepackage{xcolor}
+
+% Document Configuration
+\geometry{
+    a4paper,
+    total={170mm,257mm},
+    left=25mm,
+    top=25mm,
+}
+
+% Hyperlink Configuration
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    pdftitle={Lab 2 - Generative AI},
+}
+
+% Header and Footer
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{UM6P-CC}
+\lhead{Generative AI Course}
+\rfoot{Page \thepage}
+
+% Section Formatting
+\titleformat{\section}
+  {\normalfont\Large\bfseries\color{blue}}
+  {\thesection}{1em}{}
+
+\title{
+    \vspace{-2cm}
+    \textbf{\Huge Lab 2: Language Models} \\
+    \vspace{0.5cm}
+    \large RNNs, GRUs, and Feed-Forward Networks
+}
+\author{\textbf{Youness Anouar} \\ UM6P-CC}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\newpage
+\tableofcontents
+\newpage
+
+\section{Dataset}
+\subsection{Presentation}
+The dataset used in this project is the \textbf{HuffPost News Category Dataset}, which can be found on Kaggle and Hugging Face. It contains approximately 200,000 news headlines and short descriptions from the Huffington Post between 2012 and 2018.
+
+Each record in the dataset is a JSON object with the following attributes:
+\begin{itemize}
+    \item \textbf{category}: The category of the article (e.g., CRIME, POLITICS).
+    \item \textbf{headline}: The title of the article.
+    \item \textbf{authors}: The author(s) of the article.
+    \item \textbf{link}: URL to the original post.
+    \item \textbf{short\_description}: A brief summary of the article content.
+    \item \textbf{date}: The publication date.
+\end{itemize}
+
+For this project, we utilize the \texttt{short\_description} field as the source text for training the language models. This field provides concise, formal, and modern English sentences suitable for learning sequential patterns.
+
+The dataset can be downloaded from Hugging Face: \\ \texttt{https://huggingface.co/datasets/khalidalt/HuffPost}
+\subsubsection{Preprocessing}
+To improve model performance and reduce the vocabulary size, we apply the following preprocessing steps to the \texttt{short\_description} text:
+\begin{enumerate}
+    \item \textbf{Normalization}: All text is converted to lowercase.
+    \item \textbf{Cleaning}: Hyphens are replaced with spaces. Punctuation is removed, except for apostrophes (') and ampersands (\&), which are preserved.
+    \item \textbf{Tokenization}: The text is tokenized using a space-based tokenizer. Special tokens \texttt{<start>} and \texttt{<end>} are added to the beginning and end of each sequence to mark boundaries.
+    \item \textbf{Vocabulary}: A vocabulary is built from the top 50,000 most frequent words. Words not in the vocabulary are replaced with an \texttt{<unk>} token.
+\end{enumerate}
+
+\subsection{Training Subsets}
+Due to computational constraints, we utilize subsets of the full dataset for training our models. The data usage differs between the architectures:
+
+\begin{itemize}
+    \item \textbf{Basic Neural Network (Feed-Forward)}: Trained on the first \textbf{10,000} samples. The input consists of a fixed context window of 5 words to predict the 6th word.
+    \item \textbf{Simple RNN and GRU}: Trained on the first \textbf{1,024} samples. These models process variable-length sequences (padded to a maximum length) to predict the next token at every time step.
+\end{itemize} 
+\section{Models}
+\subsection{Feed-Forward Neural Network (Basic NN)}
+The first model implemented is a primitive language model based on a Feed-Forward Neural Network (FNN). Unlike recurrent models, this architecture uses a fixed context window to predict the next word.
+
+\subsubsection{Architecture}
+The model processing pipeline is illustrated in Figure \ref{fig:basic_nn_arch}. It consists of the following components:
+\begin{itemize}
+    \item \textbf{Input}: A fixed sequence of 5 integer indices representing the preceding context words.
+    \item \textbf{Embedding Layer}: learnable vector representation for each word.
+        \begin{itemize}
+            \item Input dimension: Vocabulary size ($\approx 50,000$)
+            \item Embedding dimension: 64
+        \end{itemize}
+    \item \textbf{Flattening}: The embeddings of the context words are concatenated into a single vector of size $5 \times 64 = 320$.
+    \item \textbf{Hidden Layer}: A fully connected linear layer.
+        \begin{itemize}
+            \item Input size: 320
+            \item Output size: 256
+            \item Activation function: ReLU
+        \end{itemize}
+    \item \textbf{Output Layer}: A final linear layer mapping the hidden representation to the vocabulary logits.
+        \begin{itemize}
+            \item Input size: 256
+            \item Output size: Vocabulary size
+        \end{itemize}
+\end{itemize}
+
+\subsubsection{Hyperparameters and Training Configuration}
+The model was trained with the following parameters:
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Parameter} & \textbf{Value} \\ \hline
+Context Window & 5 words \\ \hline
+Embedding Dimension & 64 \\ \hline
+Hidden Dimension & 256 \\ \hline
+Optimizer & AdamW \\ \hline
+Learning Rate & 0.001 \\ \hline
+Loss Function & Cross Entropy \\ \hline
+Batch Size & 512 \\ \hline
+Epochs & 30 \\ \hline
+\end{tabular}
+\caption{Hyperparameters for the Basic Feed-Forward Network}
+\label{tab:basic_params}
+\end{table}
+\subsection{Simple Recurrent Neural Network (RNN)}
+The Simple RNN moves beyond the fixed context window of the Feed-Forward network by processing sequences token by token. It maintains a hidden state that is updated at each time step, allowing it to theoretically capture dependencies over the entire sequence history.
+
+\subsubsection{Architecture}
+\begin{itemize}
+    \item \textbf{Input Processing}: Handles variable length sequences (padded to length 128) using PyTorch's $pack\_padded\_sequence$ to mask padding tokens.
+    \item \textbf{Embedding Layer}: 64-dimensional embeddings.
+    \item \textbf{Recurrent Layer}: A standard RNN cell with a hidden size of 256 units. One layer is used (`num\_layers=1`).
+    \item \textbf{Output Layer}: A linear projection from the hidden state (256) to the vocabulary size.
+\end{itemize}
+
+\subsubsection{Hyperparameters}
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Parameter} & \textbf{Value} \\ \hline
+Hidden Units & 256 \\ \hline
+Embedding Dimension & 64 \\ \hline
+Optimizer & AdamW \\ \hline
+Learning Rate & 0.001 \\ \hline
+Batch Size & 16 \\ \hline
+Epochs & 30 \\ \hline
+\end{tabular}
+\caption{Hyperparameters for the Simple RNN}
+\end{table}
+
+\subsection{Gated Recurrent Unit (GRU)}
+The GRU is an advanced variant of the RNN designed to solve the vanishing gradient problem. It introduces "update" and "reset" gates that control the flow of information, allowing the model to decide what to remember and what to forget over longer sequences.
+
+\subsubsection{Architecture}
+The architecture is identical to the Simple RNN, except the standard RNN cell is replaced by a GRU cell.
+\begin{itemize}
+    \item \textbf{Embedding}: 64-dimensional.
+    \item \textbf{Recurrent Layer}: GRU cell with 256 hidden units.
+    \item \textbf{Output}: Linear layer (256 $\rightarrow$ Vocab size).
+\end{itemize}
+
+\subsubsection{Hyperparameters}
+The GRU model uses the exact same hyperparameters as the Simple RNN (Table 2) to ensure a fair comparison.
+\section{Results}
+\subsection{Basic Feed-Forward Network}
+The training results for the Basic Feed-Forward Network demonstrate strong convergence on the training set over 30 epochs.
+
+\begin{itemize}
+    \item \textbf{Loss}: The Cross-Entropy Loss started at approximately 7.3 and decreased steadily, reaching a final value below 0.8. This indicates the model effectively minimized the error in its probability distributions.
+    \item \textbf{Accuracy}: The training accuracy improved significantly, starting from roughly 10\% and reaching over 85\% by the end of training. This suggests the model successfully learned to predict the 6th word based on the preceding 5 words for the majority of the training samples.
+    \item \textbf{Perplexity}: The perplexity score saw a dramatic drop from over 1400 in the first epoch to single digits ($<5$) in the final epochs, showing the model's increasing confidence and reduced uncertainty in its predictions.
+\end{itemize}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\textwidth]{basic_loss+acc+perpl.png}
+    \caption{Training metrics for the Basic Feed-Forward Network. Left: Loss, Center: Accuracy, Right: Perplexity.}
+    \label{fig:basic_results}
+\end{figure}
+
+While the metrics indicate successful training, it is important to note that this high performance is partly due to the model overfitting on the fixed 5-gram patterns present in the training data. The model's ability to generalize to long-range context is inherently limited by its architecture.
+\subsection{Simple RNN and GRU Comparison}
+The training results for the Simple RNN and GRU models show their ability to handle sequential data effectively, though on this smaller subset (1,024 samples) they both fit the data very closely.
+
+\begin{itemize}
+    \item \textbf{Convergence}: Both models converge rapidly. The Loss drops below 1.0, and Perplexity approaches 1.0, indicating the models have effectively memorized the training sequences.
+    \item \textbf{Accuracy}: Both models achieve high accuracy ($>85\%$). The GRU appears to have a slightly smoother convergence curve in the early epochs compared to simple RNN, likely due to its better handling of gradients.
+    \item \textbf{Generalization}: While training performance is high, trained on a small subset (1,024 samples) carries a high risk of overfitting. The models likely memorized the specific sentences in the training set rather than learning generalized language rules.
+\end{itemize}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\textwidth]{simplenn&gru_loss+acc+perpl.png}
+    \caption{Comparison of Simple RNN vs GRU training metrics. Left: Loss, Center: Accuracy, Right: Perplexity.}
+    \label{fig:rnn_gru_results}
+\end{figure}
+
+\subsection{Testing them all together}
+
+To evaluate the generative behavior of all three models, we perform a controlled next-word generation experiment using the same fixed set of test prompts for each architecture.  
+The test sentences are constructed using the same vocabulary pool as the training dataset in order to avoid the appearance of \texttt{<unk>} tokens and ensure fair comparison.  
+The same inputs are used for the Feed-Forward model, the Simple RNN, and the GRU.
+
+\paragraph{Methodology.}
+Each test sentence is provided as a prefix sequence, and the model is tasked with generating the continuation using greedy decoding (argmax at each step).  
+Generation proceeds token-by-token until the \texttt{<end>} token is produced or a maximum sequence length is reached.  
+This corresponds to a standard \textbf{next-word autoregressive generation} setup, where the previously generated token is recursively fed back as input to predict the next token.
+\paragraph{Test sentences \& models outpus.}
+\begin{itemize}
+
+\item The actor released a statement denying the sexual harassment accusations
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} the actor released a statement denying the sexual harassment accusations after his 2017 their campaign
+    \item \textbf{RNN:} the actor released a statement denying the sexual harassment accusations her in your onion
+    \item \textbf{GRU:} the actor released a statement denying the sexual harassment accusations against weinstein sparked the president's
+\end{enumerate}
+
+\item A new Star Wars film is reportedly
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} a new star wars film is reportedly in a new case played for justice
+    \item \textbf{RNN:} a new star wars film is reportedly from their long term
+    \item \textbf{GRU:} a new star wars film is reportedly tortured into and united arab emirates abc news
+\end{enumerate}
+
+\item The government failed to locate the immigrant children
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} the government failed to locate the immigrant children killed up the case of age was black man who went to be in the united states
+    \item \textbf{RNN:} the government failed to locate the immigrant children in the state attorney general who survived the crash
+    \item \textbf{GRU:} the government failed to locate the immigrant children of escaping her violent ex husband
+\end{enumerate}
+
+\item Trump gives Dems an ass-kicking for not having
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} trump gives dems an ass kicking for not having hard
+    \item \textbf{RNN:} trump gives dems an ass kicking for not having a surprise serenade from a mariachi band
+    \item \textbf{GRU:} trump gives dems an ass kicking for not having is very disturbing gop candidate wendy rogers said
+\end{enumerate}
+
+\item The pop star also left her
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} the pop star also left her the first black woman to receive the cecil b demille award
+    \item \textbf{RNN:} the pop star also left her to dial in the workplace
+    \item \textbf{GRU:} the pop star also left her on a scale weve never seen before
+\end{enumerate}
+
+\item Irish women will travel to vote in the
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} irish women will travel to vote in the us history of my federal judge
+    \item \textbf{RNN:} irish women will travel to vote in the workplace over the late and rules
+    \item \textbf{GRU:} irish women will travel to vote in the united states of what happens will inspire readers
+\end{enumerate}
+
+\item Thousands of children deserve to be more
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} thousands of children deserve to be more than another statistic
+    \item \textbf{RNN:} thousands of children deserve to be more to change individual votes or vote totals
+    \item \textbf{GRU:} thousands of children deserve to be more than another statistic
+\end{enumerate}
+
+\item The rural region said it is coming to
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} the rural region said it is coming to close the inquiry into russia's election meddling
+    \item \textbf{RNN:} the rural region said it is coming to rural new brunswick
+    \item \textbf{GRU:} the rural region said it is coming to a period of celibacy during that time
+\end{enumerate}
+
+\item Wiretaps reveal conversations between
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} wiretaps reveal conversations between president donald trump were still talking
+    \item \textbf{RNN:} wiretaps reveal conversations between alexander torshin and alexander romanov a convicted russian money launderer
+    \item \textbf{GRU:} wiretaps reveal conversations between the public and when they should be speaking english
+\end{enumerate}
+
+\item Activists are protesting the new law regarding
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} activists are protesting the new law regarding its own is many back in later
+    \item \textbf{RNN:} activists are protesting the new law regarding the justice department
+    \item \textbf{GRU:} activists are protesting the new law regarding a culture of violence that we
+\end{enumerate}
+
+\item The former president shared his
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} the former president shared his songs while
+    \item \textbf{RNN:} the former president shared his words reportedly uttered in private
+    \item \textbf{GRU:} the former president shared his longtime girlfriend anna eberstein tied the knot in a civil ceremony
+\end{enumerate}
+
+\item California is the first state to legalize
+\begin{enumerate}
+    \item \textbf{Feed-Forward:} california is the first state to legalize medical cannabis becomes the most populous to allow recreational use
+    \item \textbf{RNN:} california is the first state to legalize trump administration in recent weeks
+    \item \textbf{GRU:} california is the first state to legalize sports betting from a government database
+\end{enumerate}
+
+\end{itemize}
+
+
+\paragraph{Observations}
+
+\begin{itemize}
+    \item \textbf{Feed-Forward Network}:  
+    The model produces syntactically valid but semantically incoherent text, with strong topic drift and memorized n-gram mixing.  
+    This is due to its fixed 5-word context window and lack of sequential memory.
+
+    \textit{Example:}  
+    \begin{quote}
+    \small
+    \texttt{the government failed to locate the immigrant children killed up the case of age was black man who went to be in the united states...}
+    \end{quote}
+    The sentence mixes unrelated concepts (immigration, crime, politics, performance) with no semantic consistency, showing local pattern stitching rather than sequence modeling.
+
+    \item \textbf{Simple RNN}:  
+    The RNN shows better grammatical structure and short-range coherence, but still suffers from semantic instability and memorization artifacts.
+
+    \textit{Example:}  
+    \begin{quote}
+    \small
+    \texttt{wiretaps reveal conversations between alexander torshin and alexander romanov a convicted russian money launderer}
+    \end{quote}
+    This output is coherent and factual but directly reproduces training content, indicating memorization rather than generalization.
+
+    Another example of semantic drift:
+    \begin{quote}
+    \small
+    \texttt{trump gives dems an ass kicking for not having a surprise serenade from a mariachi band}
+    \end{quote}
+    The structure is fluent, but the content is logically absurd.
+
+    \item \textbf{GRU}:  
+    The GRU produces the most coherent and semantically stable outputs, with better topic continuity and structured completions.
+
+    \textit{Example:}  
+    \begin{quote}
+    \small
+    \texttt{thousands of children deserve to be more than another statistic}
+    \end{quote}
+    The model correctly completes the sentence with a meaningful, semantically consistent continuation.
+
+    Another example:
+    \begin{quote}
+    \small
+    \texttt{the rural region said it is coming to rural new brunswick}
+    \end{quote}
+    This shows strong contextual alignment and realistic geographic coherence.
+\end{itemize}
+
+\paragraph{Conclusion.}
+The qualitative evaluation reveals a clear hierarchy in generative quality:
+\[
+\text{Basic\_NN} \;\ll\; \text{RNN} \;<\; \text{GRU}
+\]
+The Feed-Forward model behaves as a local statistical predictor with no sequence understanding.  
+The RNN captures short-term dependencies but shows memorization and instability.  
+The GRU demonstrates superior contextual memory, semantic coherence, and sequence stability, confirming the effectiveness of gating mechanisms for long-range dependency modeling.
+
+\end{document}
