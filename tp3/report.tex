@@ -1,0 +1,456 @@
+% ============================================================
+%  Lab Report — Transformer Encoder Benchmark
+%  Week 4 · Generative AI · UM6P-CS  Semester 4
+% ============================================================
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ─────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{enumitem}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+% ── Colour palette ───────────────────────────────────────────
+\definecolor{umblue}{HTML}{1F4E79}
+\definecolor{codegray}{HTML}{F5F5F5}
+\definecolor{linkblue}{HTML}{2B6CB0}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=umblue,
+    citecolor=umblue,
+    urlcolor=linkblue,
+}
+
+% ── Section styling ──────────────────────────────────────────
+\titleformat{\section}
+  {\Large\bfseries\color{umblue}}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\large\bfseries\color{umblue!80!black}}{\thesubsection}{1em}{}
+
+% ── Header / Footer ─────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{umblue}{Generative AI}}
+\fancyhead[R]{\small\textcolor{umblue}{Week 4 Lab Report}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ── Code listing style ───────────────────────────────────────
+\lstset{
+  backgroundcolor=\color{codegray},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{gray!40},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{umblue}\bfseries,
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60!black},
+  language=Python,
+  tabsize=4,
+}
+
+% ── Title ────────────────────────────────────────────────────
+\title{%
+  \vspace{-1cm}
+  \textcolor{umblue}{\rule{\linewidth}{1.2pt}}\\[0.4cm]
+  {\LARGE\bfseries Week 4 Lab Report (Lab 3)\\}\\[0.3cm]
+  {\large Youness Anouar}\\[0.2cm]
+  \textcolor{umblue}{\rule{\linewidth}{1.2pt}}
+}
+\author{%
+  UM6P College of Computing\\
+  Generative AI Course
+}
+\date{\today}
+
+% ============================================================
+\begin{document}
+\maketitle
+\thispagestyle{fancy}
+
+% ────────────────────────────────────────────────────────────
+\section{Introduction}
+% ────────────────────────────────────────────────────────────
+
+The Transformer architecture, first introduced by Vaswani et al.\ (2017), has become the dominant paradigm in modern natural language processing.
+Its core mechanism, \emph{multi-head self-attention}, enables each token in a sequence to attend directly to every other token, thereby capturing long-range dependencies far more effectively than earlier recurrent approaches.
+
+The objective of this laboratory is threefold:
+\begin{enumerate}[leftmargin=1.6cm]
+    \item \textbf{Build} a multi-head Transformer Encoder entirely from scratch in PyTorch, without relying on any pre-built transformer modules.
+    \item \textbf{Train} the encoder on a real-world text classification task using the \emph{20~Newsgroups} dataset (four selected categories, approximately 3\,900 documents).
+    \item \textbf{Benchmark} five distinct hyper-parameter configurations, varying learning rate and batch size, to study their effect on convergence speed, generalisation, and final accuracy.
+\end{enumerate}
+
+This report describes the architecture, the dataset preparation pipeline, the experimental setup, and provides a thorough analysis of the results obtained.
+
+% ────────────────────────────────────────────────────────────
+\section{Model Architecture}
+% ────────────────────────────────────────────────────────────
+
+The model follows a standard Transformer Encoder design with \emph{pre-norm} residual connections.
+It is composed of the following components, stacked in sequence.
+
+\subsection{Embedding Layer}
+
+Each input token is mapped to a dense vector through a \textbf{learned token embedding} of dimension $d_{\text{model}} = 64$.
+Positional information is injected via a separate \textbf{learned positional embedding} of the same dimension, supporting sequences of up to 512 tokens.
+The two embeddings are summed element-wise and passed through a dropout layer ($p = 0.1$).
+
+\subsection{Multi-Head Self-Attention}
+
+The attention mechanism splits the $d_{\text{model}}$-dimensional representation into $h = 4$ heads, each of dimension $d_k = d_{\text{model}} / h = 16$.
+For an input $\mathbf{X} \in \mathbb{R}^{B \times T \times D}$, the scaled dot-product attention for each head is computed as:
+
+\begin{equation}
+    \text{Attention}(\mathbf{Q}, \mathbf{K}, \mathbf{V})
+    = \text{softmax}\!\left(\frac{\mathbf{Q}\,\mathbf{K}^{\top}}{\sqrt{d_k}}\right)\,\mathbf{V}
+\end{equation}
+
+\noindent where $\mathbf{Q} = \mathbf{X}\,\mathbf{W}^Q$, $\mathbf{K} = \mathbf{X}\,\mathbf{W}^K$, and $\mathbf{V} = \mathbf{X}\,\mathbf{W}^V$ are linear projections.
+The outputs of all heads are concatenated and projected through a final linear layer $\mathbf{W}^O$.
+Dropout is applied to the attention weights.
+
+\subsection{Feed-Forward Network}
+
+Each encoder layer contains a position-wise feed-forward network consisting of two linear transformations with a GELU activation in between:
+
+\begin{equation}
+    \text{FFN}(\mathbf{x}) = \mathbf{W}_2 \;\text{GELU}(\mathbf{W}_1\,\mathbf{x} + \mathbf{b}_1) + \mathbf{b}_2
+\end{equation}
+
+\noindent The inner dimension is $d_{\text{ff}} = 128$ (twice $d_{\text{model}}$). Dropout ($p = 0.1$) is applied after the activation and after the second linear layer.
+
+\subsection{Encoder Layer and Stack}
+
+Each encoder layer applies the following \textbf{pre-norm} residual pattern:
+
+\begin{align}
+    \mathbf{x} &\leftarrow \mathbf{x} + \text{MHA}\bigl(\text{LayerNorm}(\mathbf{x})\bigr) \\
+    \mathbf{x} &\leftarrow \mathbf{x} + \text{FFN}\bigl(\text{LayerNorm}(\mathbf{x})\bigr)
+\end{align}
+
+\noindent Two such layers ($n_{\text{layers}} = 2$) are stacked, followed by a final layer normalisation.
+
+\subsection{Classification Head}
+
+Rather than using a special \texttt{[CLS]} token, the model applies \textbf{mean pooling} over all non-padding token representations:
+
+\begin{equation}
+    \mathbf{p} = \frac{\sum_{t=1}^{T} \mathbf{h}_t \cdot \mathbb{1}[x_t \neq \text{PAD}]}
+                      {\sum_{t=1}^{T} \mathbb{1}[x_t \neq \text{PAD}]}
+\end{equation}
+
+\noindent The pooled vector $\mathbf{p} \in \mathbb{R}^{d_{\text{model}}}$ is then projected to the number of classes through a single linear layer.
+
+\subsection{Model Size}
+
+The total number of trainable parameters with the default configuration ($V = 5\,002$, $d = 64$, $L = 2$, $h = 4$) is \textbf{419\,968}, making this a lightweight model suitable for CPU training.
+
+% ────────────────────────────────────────────────────────────
+\section{Dataset and Preprocessing}
+% ────────────────────────────────────────────────────────────
+
+\subsection{20 Newsgroups (4 Categories)}
+
+The dataset is drawn from scikit-learn's \texttt{fetch\_20newsgroups} utility.
+Four thematically distinct categories were selected to ensure a clear separation of topics while keeping the dataset small enough for rapid experimentation:
+
+\begin{table}[H]
+\centering
+\caption{Selected categories and their sample counts.}
+\label{tab:categories}
+\begin{tabular}{@{}lc@{}}
+\toprule
+\textbf{Category} & \textbf{Documents} \\
+\midrule
+\texttt{comp.graphics}        & 973 \\
+\texttt{rec.sport.hockey}     & 999 \\
+\texttt{sci.space}            & 987 \\
+\texttt{talk.politics.guns}   & 910 \\
+\midrule
+\textbf{Total}                & \textbf{3\,869} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Headers, footers, and quoted replies were removed during loading to prevent the model from exploiting non-content metadata.
+The class distribution is approximately balanced, with the smallest class (\texttt{talk.politics.guns}) containing 910 documents and the largest (\texttt{rec.sport.hockey}) containing 999.
+
+\subsection{Tokenisation}
+
+A simple word-level tokeniser was implemented:
+\begin{enumerate}[leftmargin=1.6cm]
+    \item Convert the text to lowercase.
+    \item Extract all alphabetic tokens using a regular expression (\texttt{[a-z]+}).
+    \item Build a vocabulary from the 5\,000 most frequent words across the full corpus.
+    \item Map each word to an integer index (indices 0 and 1 are reserved for \texttt{PAD} and \texttt{UNK} tokens respectively), giving a total vocabulary size of \textbf{5\,002}.
+\end{enumerate}
+
+\noindent All documents are truncated or zero-padded to a fixed length of \textbf{128 tokens}.
+
+\subsection{Data Splits}
+
+The dataset was divided using stratified sampling to preserve the class distribution in each split:
+
+\begin{table}[H]
+\centering
+\caption{Data split sizes.}
+\label{tab:splits}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+\textbf{Split} & \textbf{Samples} & \textbf{Proportion} \\
+\midrule
+Training    & 2\,321 & 60\% \\
+Validation  &   774  & 20\% \\
+Test        &   774  & 20\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ────────────────────────────────────────────────────────────
+\section{Experimental Setup}
+% ────────────────────────────────────────────────────────────
+
+\subsection{Fixed Hyper-parameters}
+
+The following parameters were held constant across all five experiments in order to isolate the effect of learning rate and batch size:
+
+\begin{table}[H]
+\centering
+\caption{Fixed hyper-parameters.}
+\label{tab:fixed_hp}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Model dimension ($d_{\text{model}}$) & 64 \\
+Number of layers ($n_{\text{layers}}$) & 2 \\
+Attention heads ($h$)                  & 4 \\
+Feed-forward dimension ($d_{\text{ff}}$) & 128 \\
+Dropout rate                           & 0.1 \\
+Maximum sequence length                & 128 \\
+Optimiser                              & Adam ($\beta_1\!=\!0.9$, $\beta_2\!=\!0.999$) \\
+Learning rate schedule                 & Cosine annealing \\
+Epochs                                 & 15 \\
+Loss function                          & Cross-entropy \\
+Random seed                            & 42 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Varied Hyper-parameters}
+
+Five configurations were defined, varying only the learning rate and the training batch size:
+
+\begin{table}[H]
+\centering
+\caption{Experiment configurations.}
+\label{tab:configs}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+\textbf{Experiment} & \textbf{Learning Rate} & \textbf{Batch Size} & \textbf{Rationale} \\
+\midrule
+\texttt{baseline}    & $1 \times 10^{-3}$ & 64  & Standard configuration \\
+\texttt{low\_lr}     & $1 \times 10^{-4}$ & 64  & Conservative learning rate \\
+\texttt{high\_lr}    & $5 \times 10^{-3}$ & 64  & Aggressive learning rate \\
+\texttt{small\_batch}& $1 \times 10^{-3}$ & 16  & More frequent gradient updates \\
+\texttt{large\_batch}& $1 \times 10^{-3}$ & 256 & Fewer, more stable gradient steps \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Each experiment was trained from scratch with the same random seed to ensure fair comparison.
+The cosine annealing schedule gradually reduces the learning rate to near zero over the 15 epochs, which generally helps the model settle into a good minimum during the final training epochs.
+
+% ────────────────────────────────────────────────────────────
+\section{Results}
+% ────────────────────────────────────────────────────────────
+
+\subsection{Validation Performance Summary}
+
+Table~\ref{tab:results} presents the key validation metrics for all five experiments, sorted by best validation accuracy.
+
+\begin{table}[H]
+\centering
+\caption{Validation results across all experiments (sorted by best validation accuracy).}
+\label{tab:results}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\textbf{Experiment} & \textbf{LR} & \textbf{BS} & \textbf{Best Val Acc} & \textbf{Final Val Acc} & \textbf{Final Val F1} \\
+\midrule
+\texttt{high\_lr}    & $5\!\times\!10^{-3}$ & 64  & \textbf{0.8682} & \textbf{0.8656} & \textbf{0.8664} \\
+\texttt{small\_batch}& $1\!\times\!10^{-3}$ & 16  & 0.8217 & 0.8152 & 0.8141 \\
+\texttt{baseline}    & $1\!\times\!10^{-3}$ & 64  & 0.7765 & 0.7739 & 0.7729 \\
+\texttt{large\_batch}& $1\!\times\!10^{-3}$ & 256 & 0.6047 & 0.6008 & 0.5977 \\
+\texttt{low\_lr}     & $1\!\times\!10^{-4}$ & 64  & 0.4664 & 0.4612 & 0.4558 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The \texttt{high\_lr} experiment clearly outperforms all others, achieving a best validation accuracy of \textbf{86.82\%} and a macro F1-score of \textbf{0.8664}.
+
+\subsection{Training Curves}
+
+Figure~\ref{fig:curves} displays the training loss, validation loss, and validation accuracy over 15 epochs for all five configurations.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{week4_pytorch_benchmarkk_files/week4_pytorch_benchmarkk_11_0.png}
+    \caption{Training curves across all five experiments. \textbf{Left:}~Training loss. \textbf{Centre:}~Validation loss. \textbf{Right:}~Validation accuracy. The \texttt{high\_lr} configuration converges fastest and reaches the highest accuracy, while \texttt{low\_lr} and \texttt{large\_batch} struggle to learn effectively within 15 epochs.}
+    \label{fig:curves}
+\end{figure}
+
+\noindent Several observations can be drawn from these curves:
+
+\begin{itemize}[leftmargin=1.6cm]
+    \item \textbf{\texttt{high\_lr}} ($\text{lr} = 5 \times 10^{-3}$) converges rapidly, reaching low training loss within the first few epochs and maintaining the highest validation accuracy throughout.
+    \item \textbf{\texttt{small\_batch}} ($\text{bs} = 16$) benefits from more frequent parameter updates per epoch, resulting in faster convergence than the baseline, though it exhibits slightly noisier loss curves.
+    \item \textbf{\texttt{baseline}} ($\text{lr} = 10^{-3}$, $\text{bs} = 64$) shows steady but slower convergence. The model is still improving at epoch 15, suggesting that additional training epochs could further boost performance.
+    \item \textbf{\texttt{large\_batch}} ($\text{bs} = 256$) converges slowly because each epoch contains far fewer gradient updates (approximately 9 steps per epoch compared to 37 for the baseline). The learning rate of $10^{-3}$ appears insufficient for this batch size.
+    \item \textbf{\texttt{low\_lr}} ($\text{lr} = 10^{-4}$) barely moves from its initialisation, after 15 epochs the model has not yet broken past 47\% accuracy, which is only marginally above the random baseline of 25\%.
+\end{itemize}
+
+\subsection{Experiment Comparison}
+
+Figure~\ref{fig:bar} provides a horizontal bar chart comparing the best validation accuracy achieved by each experiment.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{week4_pytorch_benchmarkk_files/week4_pytorch_benchmarkk_11_1.png}
+    \caption{Best validation accuracy per experiment. The \texttt{high\_lr} configuration dominates, followed by \texttt{small\_batch} and \texttt{baseline}.}
+    \label{fig:bar}
+\end{figure}
+
+\noindent The gap between the top-performing \texttt{high\_lr} and the worst-performing \texttt{low\_lr} is over 40 percentage points, highlighting just how sensitive this small Transformer model is to the choice of learning rate.
+
+% ────────────────────────────────────────────────────────────
+\section{Test Evaluation}
+% ────────────────────────────────────────────────────────────
+
+The best-performing experiment (\texttt{high\_lr}) was evaluated on the held-out test set of 774 documents.
+
+\subsection{Overall Test Metrics}
+
+\begin{table}[H]
+\centering
+\caption{Test set performance of the best model (\texttt{high\_lr}).}
+\label{tab:test}
+\begin{tabular}{@{}lc@{}}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Test Loss         & 0.7099 \\
+Test Accuracy     & \textbf{0.8191} (81.91\%) \\
+Test F1 (macro)   & \textbf{0.8187} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent The test accuracy (81.91\%) is slightly lower than the best validation accuracy (86.82\%), which is expected since the validation set was indirectly used for model selection.
+The small gap indicates that the model generalises reasonably well.
+
+\subsection{Per-Class Performance}
+
+Table~\ref{tab:perclass} provides precision, recall, and F1-score for each of the four categories.
+
+\begin{table}[H]
+\centering
+\caption{Per-class test metrics (best model: \texttt{high\_lr}).}
+\label{tab:perclass}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+\textbf{Category} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-score} & \textbf{Support} \\
+\midrule
+\texttt{comp.graphics}        & 0.8710 & 0.8308 & 0.8504 & 195 \\
+\texttt{rec.sport.hockey}     & 0.8689 & 0.8950 & 0.8818 & 200 \\
+\texttt{sci.space}            & 0.7202 & 0.7970 & 0.7566 & 197 \\
+\texttt{talk.politics.guns}   & 0.8293 & 0.7473 & 0.7861 & 182 \\
+\midrule
+\textbf{Macro average}        & 0.8223 & 0.8175 & 0.8187 & 774 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent Key observations:
+\begin{itemize}[leftmargin=1.6cm]
+    \item \textbf{\texttt{rec.sport.hockey}} achieves the highest F1-score (0.8818), likely because sports-related vocabulary is highly distinctive and does not overlap much with the other categories.
+    \item \textbf{\texttt{sci.space}} has the lowest precision (0.7202), suggesting that the model sometimes misclassifies documents from other categories as belonging to this class. This could be due to shared scientific or technical vocabulary with \texttt{comp.graphics}.
+    \item \textbf{\texttt{talk.politics.guns}} shows relatively lower recall (0.7473), meaning a proportion of political documents are being misassigned to other categories.
+\end{itemize}
+
+\subsection{Confusion Matrix}
+
+Figure~\ref{fig:cm} shows the confusion matrix for the test set predictions.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{week4_pytorch_benchmarkk_files/week4_pytorch_benchmarkk_13_1.png}
+    \caption{Confusion matrix on the test set for the \texttt{high\_lr} model (accuracy = 81.9\%). The strongest diagonal values are found for \texttt{rec.sport.hockey} and \texttt{comp.graphics}, confirming the per-class F1 trends.}
+    \label{fig:cm}
+\end{figure}
+
+\noindent The confusion matrix confirms that the most frequent misclassifications occur between \texttt{sci.space} and \texttt{comp.graphics}, which is understandable as both categories contain technical and scientific content.
+
+% ────────────────────────────────────────────────────────────
+\section{Discussion}
+% ────────────────────────────────────────────────────────────
+
+\subsection{Effect of Learning Rate}
+
+The learning rate proved to be the single most influential hyper-parameter in this benchmark.
+With the architecture and training budget held constant, a five-fold increase from the baseline ($10^{-3} \to 5 \times 10^{-3}$) yielded a +9 percentage point improvement in validation accuracy, whereas a ten-fold decrease ($10^{-3} \to 10^{-4}$) resulted in a model that had barely begun to learn after 15 epochs.
+
+This behaviour can be explained by the interaction between the learning rate and the cosine annealing schedule: when the initial rate is too low, the schedule reduces it even further in later epochs, effectively stalling the optimisation.
+Conversely, the higher learning rate allows the model to explore the loss landscape aggressively early on and then gradually settle as the rate decays.
+
+\subsection{Effect of Batch Size}
+
+Reducing the batch size from 64 to 16 increased the number of weight updates per epoch by a factor of four (from $\sim$37 to $\sim$146 steps), which accelerated convergence and improved validation accuracy by roughly 4.5 percentage points.
+On the other hand, increasing the batch size to 256 reduced the number of updates to approximately 9 per epoch, making the optimiser sluggish.
+
+This observation aligns with the well-known \emph{linear scaling rule}: when increasing the batch size, the learning rate should be scaled proportionally.
+The \texttt{large\_batch} experiment used the same learning rate as the baseline, which was insufficient for the larger batch, resulting in poor performance.
+
+\subsection{Limitations}
+
+Several limitations should be noted:
+\begin{itemize}[leftmargin=1.6cm]
+    \item The word-level tokeniser is rudimentary, a sub-word tokeniser (e.g.\ BPE) would likely improve coverage and reduce the number of \texttt{UNK} tokens.
+    \item The model is deliberately small (420K parameters, 2 layers). Increasing capacity could improve results but would also require a larger dataset to avoid overfitting.
+    \item Only two hyper-parameters were varied. Other potentially impactful choices, such as the number of layers, the model dimension, dropout rate, and warm-up schedule, were not explored.
+    \item Training was conducted on CPU, which limited the feasibility of larger-scale experiments.
+\end{itemize}
+
+% ────────────────────────────────────────────────────────────
+\section{Conclusion}
+% ────────────────────────────────────────────────────────────
+
+This lab demonstrated the construction of a Transformer Encoder from scratch in PyTorch and applied it to a four-class text classification task on the 20~Newsgroups dataset.
+The benchmark of five hyper-parameter configurations revealed several practical insights:
+
+\begin{enumerate}[leftmargin=1.6cm]
+    \item A moderately aggressive learning rate ($5 \times 10^{-3}$) coupled with cosine annealing was the most effective setting, reaching \textbf{86.8\%} validation accuracy and \textbf{81.9\%} test accuracy with a macro F1-score of \textbf{0.819}.
+    \item Learning rate has a far greater impact than batch size on final performance, especially within a fixed training budget.
+    \item Smaller batch sizes can serve as a substitute for larger learning rates by providing more frequent gradient updates, though they increase compute time per epoch.
+    \item The linear scaling rule is important, using a large batch without correspondingly increasing the learning rate leads to under-training.
+\end{enumerate}
+
+\noindent Overall, even a compact Transformer Encoder with fewer than half a million parameters can achieve competitive results on moderately sized text classification problems, provided the hyper-parameters, particularly the learning rate, are chosen appropriately.
+
+% ============================================================
+\end{document}
